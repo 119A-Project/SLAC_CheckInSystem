@@ -153,9 +153,9 @@ def system():
                 stl.error(f"Validation Failed: Asset Tag '{asset_tag}' not found in the database.")
         # VALIDATION LOGIC ENDS HERE
             else:
-            # If all checks pass, proceed with the check-in
-            check_in(employee_id, asset_tag, full_issue_description)
-            stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")  
+                # If all checks pass, proceed with the check-in
+                check_in(employee_id, asset_tag, full_issue_description)
+                stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")  
               
     elif choice == "Check-Out":
         stl.subheader("Laptop Check-Out")
