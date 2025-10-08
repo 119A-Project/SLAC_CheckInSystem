@@ -64,7 +64,7 @@ def check_out(transaction_id):
                     """, (now, transaction_id))
     connect.commit()
     connect.close()
-#1. Added employee name 
+
 def view_active_transactions():
     connect = database_connection()
     df = pd.read_sql("""
@@ -102,27 +102,6 @@ def view_completed_transactions():
     connect.close()
     return df
 
-# 4. New functions added to prevent check-ins with invalid Employee IDs or Asset Tags
-def validate_employee(employee_id):
-    """Checks if an employee ID exists in the Employees table."""
-    connect = database_connection()
-    cursor = connect.cursor()
-    # The [0] is needed to get the first element of the single-row result
-    cursor.execute("SELECT COUNT(1) FROM Employees WHERE employee_id = ?", (employee_id,))
-    exists = cursor.fetchone()[0]
-    connect.close()
-    return exists > 0
-
-def validate_asset(asset_tag):
-    """Checks if an asset tag exists in the Laptops table."""
-    connect = database_connection()
-    cursor = connect.cursor()
-    cursor.execute("SELECT COUNT(1) FROM Laptops WHERE asset_tag = ?", (asset_tag,))
-    exists = cursor.fetchone()[0]
-    connect.close()
-    return exists > 0
-
-
 def system():
     tables()
     stl.title("SLAC Service Desk System")
@@ -134,7 +113,7 @@ def system():
         stl.subheader("Laptop Check-In")
         employee_id = stl.text_input("Employee ID")
         asset_tag = stl.text_input("Laptop Asset Tag")
-#2. new code starts for Better Issue Descriptions
+        
         issue_type = stl.selectbox (
             "Issue Type",
             ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Etc"]
@@ -143,19 +122,12 @@ def system():
         full_issue_description = f"{issue_type}: {issue_details}"
         
         if stl.button("Check-In"):
-            # Check that all fields are filled first
-            if not employee_id or not asset_tag or not issue_details:
-                stl.error("Employee ID, Asset Tag, and Issue Details are required.")
-        # VALIDATION LOGIC STARTS HERE
-            elif not validate_employee(employee_id):
-                stl.error(f"Validation Failed: Employee ID '{employee_id}' not found in the database.")
-            elif not validate_asset(asset_tag):
-                stl.error(f"Validation Failed: Asset Tag '{asset_tag}' not found in the database.")
-        # VALIDATION LOGIC ENDS HERE
-            else:
-                # If all checks pass, proceed with the check-in
+            # This logic has been reverted to the original version without database validation.
+            if employee_id and asset_tag and issue_details:
                 check_in(employee_id, asset_tag, full_issue_description)
                 stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")  
+            else:
+                stl.error("Employee ID, Asset Tag, and Issue Details are required.")
               
     elif choice == "Check-Out":
         stl.subheader("Laptop Check-Out")
@@ -172,16 +144,14 @@ def system():
             if stl.button("Confirm Check-Out"):
                 check_out(int(tx_id))
                 stl.success(f"Transaction {tx_id} checked out successfully.")
-#3. Updated Dashboard (employee name & search bar)
+
     elif choice == "Dashboard":
         stl.subheader("Service Desk Dashboard")
         
-        # --- SEARCH BAR CODE STARTS HERE ---
         search_query = stl.text_input("Search Active Check-Ins by Employee Name or Asset Tag")
-        # --- SEARCH BAR CODE ENDS HERE ---
-
+        
         active_df = view_active_transactions()
-        # Filter the dataframe based on the search query before displaying anything
+        
         if search_query:
             active_df = active_df[
                 active_df['employee_name'].str.contains(search_query, case=False, na=False) |
@@ -193,9 +163,8 @@ def system():
 
         stl.subheader("Active Check-Ins")
         if active_df.empty:
-            stl.info("No active check-ins.")
+            stl.info("No active check-ins match your search or none are checked in.")
         else:
-            #Added 'employee_id' to the rename dictionary
             active_df.rename(columns={
                 'transaction_id': 'Tx ID',
                 'employee_id': 'Employee ID',
