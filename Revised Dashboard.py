@@ -30,7 +30,7 @@ def tables():
                             description TEXT NOT NULL
                             );
                    
-                        CREATE TABLE IF NOT EXISTS Transactions (
+                        CREATE TABLE IF NOT EXISTS transactions (
                             transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
                             employee_id INTEGER NOT NULL,
                             asset_tag INTEGER NOT NULL,
@@ -68,17 +68,10 @@ def check_out(transaction_id):
 def view_active_transactions():
     connect = database_connection()
     df = pd.read_sql("""
-                    SELECT 
-                     t.transaction_id, 
-                     t.employee_id, 
-                     e.name AS employee_name,
-                     t.asset_tag, 
-                     t.issue, 
-                     t.check_in_time
-                    FROM Transactions t
-                    JOIN Employees e ON t.employee_id = e.employee_id
-                    WHERE t.status = 'Checked-In'
-                    ORDER BY t.check_in_time DESC
+                    SELECT transaction_id, employee_id, asset_tag, issue, check_in_time
+                    FROM Transactions
+                    WHERE status='Checked-In'
+                    ORDER BY check_in_time DESC
                     """, connect)
     connect.close()
     return df
@@ -86,16 +79,8 @@ def view_active_transactions():
 def view_completed_transactions():
     connect = database_connection()
     df = pd.read_sql("""
-                    SELECT 
-                     t.transaction_id, 
-                     t.employee_id, 
-                     e.name AS employee_name,
-                     t.asset_tag, 
-                     t.issue, 
-                     t.check_in_time, 
-                     t.check_out_time
-                    FROM Transactions t
-                    JOIN Employees e ON t.employee_id = e.employee_id
+                    SELECT transaction_id, employee_id, asset_tag, issue, check_in_time, check_out_time
+                    FROM Transactions
                     WHERE status='Checked-Out'
                     ORDER BY check_out_time DESC
                     """, connect)
@@ -114,21 +99,20 @@ def system():
         employee_id = stl.text_input("Employee ID")
         asset_tag = stl.text_input("Laptop Asset Tag")
         
-        issue_type = stl.selectbox (
+        issue_type = stl.selectbox(
             "Issue Type",
-            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Etc"]
+            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Other"]
         )
         issue_details = stl.text_area("Provide more details about the issue")
         full_issue_description = f"{issue_type}: {issue_details}"
-        
+
         if stl.button("Check-In"):
-            # This logic has been reverted to the original version without database validation.
             if employee_id and asset_tag and issue_details:
                 check_in(employee_id, asset_tag, full_issue_description)
-                stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")  
+                stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")
             else:
                 stl.error("Employee ID, Asset Tag, and Issue Details are required.")
-              
+
     elif choice == "Check-Out":
         stl.subheader("Laptop Check-Out")
         active = view_active_transactions()
@@ -146,29 +130,35 @@ def system():
                 stl.success(f"Transaction {tx_id} checked out successfully.")
 
     elif choice == "Dashboard":
-        stl.subheader("Service Desk Dashboard")
-        
-        search_query = stl.text_input("Search Active Check-Ins by Employee Name or Asset Tag")
-        
         active_df = view_active_transactions()
+        completed_df = view_completed_transactions()
+
+        # --- NEW: Safely add a search bar ---
+        # This search bar operates on the data AFTER it is fetched from the database.
+        # It does not change the SQL queries and will not cause a crash.
+        search_query = stl.text_input("Search Active Check-Ins by Employee ID or Asset Tag")
+        
+        # We need to make sure the columns are strings to use .str.contains()
+        active_df['employee_id'] = active_df['employee_id'].astype(str)
+        active_df['asset_tag'] = active_df['asset_tag'].astype(str)
         
         if search_query:
             active_df = active_df[
-                active_df['employee_name'].str.contains(search_query, case=False, na=False) |
+                active_df['employee_id'].str.contains(search_query, case=False, na=False) |
                 active_df['asset_tag'].str.contains(search_query, case=False, na=False)
             ]
+        # --- END OF SEARCH BAR CODE ---
 
         stl.metric("Active Items at Service Desk", len(active_df))
         stl.markdown("---")
-
-        stl.subheader("Active Check-Ins")
+        
+        stl.subheader("Active Transactions")
         if active_df.empty:
-            stl.info("No active check-ins match your search or none are checked in.")
+            stl.info("No active check-ins match your search.")
         else:
             active_df.rename(columns={
                 'transaction_id': 'Tx ID',
                 'employee_id': 'Employee ID',
-                'employee_name': 'Employee Name',
                 'asset_tag': 'Asset Tag',
                 'issue': 'Issue Description',
                 'check_in_time': 'Check-In Time'
@@ -176,14 +166,12 @@ def system():
             stl.dataframe(active_df, use_container_width=True)
 
         stl.subheader("Completed Transactions")
-        completed_df = view_completed_transactions()
         if completed_df.empty:
             stl.info("No completed transactions yet.")
         else:
             completed_df.rename(columns={
                 'transaction_id': 'Tx ID',
                 'employee_id': 'Employee ID',
-                'employee_name': 'Employee Name',
                 'asset_tag': 'Asset Tag',
                 'issue': 'Issue Description',
                 'check_in_time': 'Check-In Time',
@@ -194,3 +182,4 @@ def system():
 
 if __name__ == '__main__':
     system()
+
