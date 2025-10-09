@@ -10,6 +10,7 @@ import streamlit as stl
 import pandas as pd
 from datetime import datetime
 
+
 def database_connection():
     connect = sqlite3.connect('checkin_system.db')
     return connect
@@ -18,72 +19,75 @@ def tables():
     connect = database_connection()
     cursor = connect.cursor()
     cursor.executescript("""
-                         CREATE TABLE IF NOT EXISTS Employees (
-                             employee_id INTEGER PRIMARY KEY,
-                             name TEXT NOT NULL,
-                             email TEXT NOT NULL
-                             );
-                   
-                        CREATE TABLE IF NOT EXISTS Laptops(
-                            asset_tag INTEGER NOT NULL,
-                            model TEXT NOT NULL,
-                            description TEXT NOT NULL
-                            );
-                   
-                        CREATE TABLE IF NOT EXISTS transactions (
-                            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            employee_id INTEGER NOT NULL,
-                            asset_tag INTEGER NOT NULL,
-                            issue TEXT NOT NULL,
-                            check_in_time DATETIME DEFAULT CURRENT_TIMESTAMP, 
-                            check_out_time DATETIME, 
-                            status TEXT CHECK(status IN ('Checked-In', 'Checked-Out')) DEFAULT 'Checked-In',
-                            FOREIGN KEY (employee_id) REFERENCES Employees(employee_id),
-                            FOREIGN KEY (asset_tag) REFERENCES Laptops(asset_tag)
-                           );
-                        """)    
+        CREATE TABLE IF NOT EXISTS Employees (
+            employee_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS Laptops (
+            asset_tag INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            description TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            asset_tag INTEGER NOT NULL,
+            issue TEXT NOT NULL,
+            check_in_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+            check_out_time DATETIME,
+            status TEXT CHECK(status IN ('Checked-In', 'Checked-Out')) DEFAULT 'Checked-In',
+            FOREIGN KEY (employee_id) REFERENCES Employees(employee_id),
+            FOREIGN KEY (asset_tag) REFERENCES Laptops(asset_tag)
+        );
+    """)
     connect.commit()
     connect.close()
-    
+
 def check_in(emp_id, asset_tag, issue):
     connect = database_connection()
     connect.execute("""
-                    INSERT INTO Transactions (employee_id, asset_tag, issue)
-                    VALUES (?, ?, ?)
-                    """, (emp_id, asset_tag, issue))
+        INSERT INTO Transactions (employee_id, asset_tag, issue)
+        VALUES (?, ?, ?)
+    """, (emp_id, asset_tag, issue))
     connect.commit()
     connect.close()
+
 
 def check_out(transaction_id):
     connect = database_connection()
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     connect.execute("""
-                    UPDATE Transactions
-                    SET check_out_time=?, status='Checked-Out'
-                    WHERE transaction_id=? AND status='Checked-In'
-                    """, (now, transaction_id))
+        UPDATE Transactions
+        SET check_out_time=?, status='Checked-Out'
+        WHERE transaction_id=? AND status='Checked-In'
+    """, (now, transaction_id))
     connect.commit()
     connect.close()
+
 
 def view_active_transactions():
     connect = database_connection()
     df = pd.read_sql("""
-                    SELECT transaction_id, employee_id, asset_tag, issue, check_in_time
-                    FROM Transactions
-                    WHERE status='Checked-In'
-                    ORDER BY check_in_time DESC
-                    """, connect)
+        SELECT transaction_id, employee_id, asset_tag, issue, check_in_time
+        FROM Transactions
+        WHERE status='Checked-In'
+        ORDER BY check_in_time DESC
+    """, connect)
     connect.close()
     return df
+
 
 def view_completed_transactions():
     connect = database_connection()
     df = pd.read_sql("""
-                    SELECT transaction_id, employee_id, asset_tag, issue, check_in_time, check_out_time
-                    FROM Transactions
-                    WHERE status='Checked-Out'
-                    ORDER BY check_out_time DESC
-                    """, connect)
+        SELECT transaction_id, employee_id, asset_tag, issue, check_in_time, check_out_time
+        FROM Transactions
+        WHERE status='Checked-Out'
+        ORDER BY check_out_time DESC
+    """, connect)
     connect.close()
     return df
 
@@ -108,19 +112,56 @@ def system():
 
     elif choice == "Check-Out":
         stl.subheader("Laptop Check-Out")
+
         active = view_active_transactions()
         if active.empty:
             stl.info("No laptops currently checked in.")
         else:
-            active["label"] = active.apply(
-                lambda r: f"Tx#{r['transaction_id']} - {r['asset_tag']} (Employee {r['employee_id']})",
-                axis=1
+            # Step 1: Search bar
+            search = stl.text_input(
+                "Search for a device (by Asset Tag, Employee ID, or Issue)",
+                placeholder="Type here and press Enter..."
             )
-            selected = stl.selectbox("Select Transaction to Check-Out", active["label"].tolist())
-            tx_id = active.loc[active["label"] == selected, "transaction_id"].values[0]
-            if stl.button("Confirm Check-Out"):
-                check_out(int(tx_id))
-                stl.success(f"Transaction {tx_id} checked out successfully.")
+
+            # Step 2: Show matching devices when user presses Enter
+            filtered = active
+            if search:
+                filtered = active[
+                    active.apply(
+                        lambda row: search.lower() in str(row["transaction_id"]).lower()
+                        or search.lower() in str(row["asset_tag"]).lower()
+                        or search.lower() in str(row["employee_id"]).lower()
+                        or search.lower() in str(row["issue"]).lower()
+                        or search.lower() in str(row["check_in_time"]).lower(),
+                        axis=1
+                    )
+                ]
+
+            if search and filtered.empty:
+                stl.warning("No matching devices found.")
+            elif search:
+                stl.write("### Matching Devices")
+                stl.dataframe(filtered, use_container_width=True)
+
+                # Step 3: Let user select device to checkout
+                filtered["label"] = filtered.apply(
+                    lambda r: f"Tx#{r['transaction_id']} - {r['asset_tag']} (Employee {r['employee_id']})",
+                    axis=1
+                )
+
+                selected = stl.selectbox(
+                    "Select the device to Check-Out",
+                    filtered["label"].tolist(),
+                    index=None,
+                    placeholder="Select or type to search for a device..."
+                )
+
+                # Step 4: Show checkout button only after device is selected
+                if selected:
+                    tx_id = filtered.loc[filtered["label"] == selected, "transaction_id"].values[0]
+                    if stl.button("Confirm Check-Out"):
+                        check_out(int(tx_id))
+                        stl.success(f"Transaction {tx_id} checked out successfully.")
 
     elif choice == "Dashboard":
         stl.subheader("Active Transactions")
