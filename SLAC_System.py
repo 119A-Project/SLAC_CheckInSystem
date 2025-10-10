@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Sat Sep 27 15:55:27 2025
 
-@author: sachinkalahasti
-"""
 import sqlite3
 import streamlit as stl
 import pandas as pd
 from datetime import datetime
+
+
+import streamlit as st
+
+st.markdown(
+    """
+    <style>
+        /* target the first image inside the sidebar */
+        section[data-testid="stSidebar"] img {
+            margin-top: -45px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# --- Sidebar Logo ---
+with st.sidebar:
+    st.image("logo.png", width=200)  # adjust width as needed
+    st.markdown("---")  # optional separator line. 
 
 def database_connection():
     connect = sqlite3.connect('checkin_system.db')
