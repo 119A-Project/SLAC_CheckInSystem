@@ -10,6 +10,22 @@ import streamlit as stl
 import pandas as pd
 from datetime import datetime
 
+stl.markdown(
+    """
+    <style>
+        /* target the first image inside the sidebar */
+        section[data-testid="stSidebar"] img {
+            margin-top: -45px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# --- Sidebar Logo ---
+with stl.sidebar:
+    stl.image("logo.png", width=200)  # adjust width as needed
+    stl.markdown("---")  # optional separator line.
 
 def database_connection():
     connect = sqlite3.connect('checkin_system.db')
