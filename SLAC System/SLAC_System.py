@@ -9,7 +9,6 @@ import sqlite3
 import streamlit as stl
 import pandas as pd
 from datetime import datetime
-from PIL import Image
 
 stl.markdown(
     """
@@ -25,10 +24,8 @@ stl.markdown(
 
 # --- Sidebar Logo ---
 with stl.sidebar:
-    stl.image("logo.png", width=200)  # adjust width as needed
+    stl.image("static/logo.png", width=200)  # adjust width as needed
     stl.markdown("---")  # optional separator line.
-
-image = Image.open("static/logo.png")
 
 def database_connection():
     connect = sqlite3.connect('checkin_system.db')
