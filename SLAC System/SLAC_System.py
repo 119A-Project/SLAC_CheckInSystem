@@ -47,7 +47,7 @@ def tables():
             description TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS transactions (
+        CREATE TABLE IF NOT EXISTS Transactions (
             transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id INTEGER NOT NULL,
             asset_tag INTEGER NOT NULL,
