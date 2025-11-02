@@ -56,20 +56,20 @@ def tables():
        );
 
 
-       CREATE TABLE IF NOT EXISTS transactions (
-           transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-           employee_id INTEGER NOT NULL,
-           asset_tag INTEGER NOT NULL,
-           issue TEXT NOT NULL,
-           check_in_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-           check_out_time DATETIME,
-           status TEXT CHECK(status IN ('Checked-In', 'Checked-Out')) DEFAULT 'Checked-In',
-           FOREIGN KEY (employee_id) REFERENCES Employees(employee_id),
-           FOREIGN KEY (asset_tag) REFERENCES Laptops(asset_tag)
-       );
-   """)
-   connect.commit()
-   connect.close()
+        CREATE TABLE IF NOT EXISTS Transactions (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            asset_tag INTEGER NOT NULL,
+            issue TEXT NOT NULL,
+            check_in_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+            check_out_time DATETIME,
+            status TEXT CHECK(status IN ('Checked-In', 'Checked-Out')) DEFAULT 'Checked-In',
+            FOREIGN KEY (employee_id) REFERENCES Employees(employee_id),
+            FOREIGN KEY (asset_tag) REFERENCES Laptops(asset_tag)
+        );
+    """)
+    connect.commit()
+    connect.close()
 
 
 def check_in(emp_id, asset_tag, issue):
