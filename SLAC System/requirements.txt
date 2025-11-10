@@ -1,2 +1,6 @@
 streamlit
 pandas
+opencv-python
+numpy
+pyzbar
+sqlite3-binary
