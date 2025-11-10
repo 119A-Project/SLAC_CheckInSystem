@@ -1,6 +1,7 @@
 streamlit
+numpy 
 pandas
-opencv-python
-numpy
+opencv-python-headless
 pyzbar
-sqlite3-binary
+streamlit-drawable-canvas
+Pillow
