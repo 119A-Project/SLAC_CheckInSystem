@@ -30,7 +30,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 
 logo_path = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'logo.png'
+    os.path.dirname(os.path.abspath(__file__)), 'static', 'logo.png'
 )
 
 # ---------------- UI chrome ----------------
