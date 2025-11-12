@@ -43,7 +43,7 @@ stl.markdown(
 )
 
 with stl.sidebar:
-    stl.image("static/logo.png", width=200)  # adjust width as needed
+    stl.image("../static/logo.png", width=200)  # adjust width as needed
     stl.markdown("---")  # optional separator line.
 
 # ---------------- Safe secrets helpers ----------------
