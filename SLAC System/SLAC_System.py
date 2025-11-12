@@ -29,6 +29,10 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
+logo_path = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'logo.png'
+)
+
 # ---------------- UI chrome ----------------
 stl.markdown(
     """
@@ -43,7 +47,7 @@ stl.markdown(
 )
 
 with stl.sidebar:
-    stl.image("../static/logo.png", width=200)  # adjust width as needed
+    stl.image(logo_path, width=200)  # adjust width as needed
     stl.markdown("---")  # optional separator line.
 
 # ---------------- Safe secrets helpers ----------------
