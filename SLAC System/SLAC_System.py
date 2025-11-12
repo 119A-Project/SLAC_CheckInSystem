@@ -29,7 +29,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
-os.chdir(os.path.dirname(__file__))
+script_dir =  script_dir = os.path.dirname(os.path.abspath(__file__))
 if os.path.isdir(script_dir):
     os.chdir(script_dir)
 
