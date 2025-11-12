@@ -1,9 +1,0 @@
-streamlit
-numpy 
-pandas
-opencv-python-headless
-pyzbar
-streamlit-drawable-canvas
-Pillow
-fpdf2
-certifi
