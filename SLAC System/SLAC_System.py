@@ -42,6 +42,8 @@ stl.markdown(
     unsafe_allow_html=True
 )
 
+os.chdir(os.path.dirname(__file__))
+
 with stl.sidebar:
     stl.image("static/logo.png", width=200)  # adjust width as needed
     stl.markdown("---")  # optional separator line.
