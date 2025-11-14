@@ -68,9 +68,6 @@ def tables():
             FOREIGN KEY (asset_tag) REFERENCES Laptops(asset_tag)
         );
     """)
-    connect.commit()
-    connect.close()
-
 
 def check_in(emp_id, asset_tag, issue):
    connect = database_connection()
