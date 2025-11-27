@@ -10,7 +10,7 @@ from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import io
 import os
-import altair as alt  # <-- visuals
+import altair as alt  
 
 # ---------- Helpers added ----------
 def normalize_date_range(date_input, fallback_start, fallback_end):
@@ -119,6 +119,28 @@ st.markdown(
         section[data-testid="stSidebar"] img {
             margin-top: -45px;
         }
+
+        /* Big title styling */
+        .big-title {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Reusable section box */
+        .section-box {
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            background-color: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            margin-bottom: 0.75rem;
+        }
+
+        /* Make dashboard tabs a bit bolder */
+        div[data-baseweb="tab-list"] button {
+            font-weight: 600 !important;
+            padding: 0.35rem 0.8rem !important;
+        }
     </style>
     """,
     unsafe_allow_html=True
@@ -208,10 +230,12 @@ def view_completed_transactions():
 
 def system():
     tables()
-    stl.title("SLAC Service Desk System")
+
+    # Big custom title instead of st.title
+    stl.markdown('<div class="big-title">SLAC Service Desk System</div>', unsafe_allow_html=True)
 
     menu = ["Check-In", "Check-Out", "Dashboard"]
-    choice = stl.sidebar.selectbox("Menu", menu)
+    choice = stl.sidebar.selectbox("Menu", menu, help="Choose a section of the Service Desk system.")
 
     # -----------------------------
     # CHECK-IN (merged + fixed)
@@ -219,14 +243,34 @@ def system():
     if choice == "Check-In":
         stl.subheader("Laptop Check-In")
 
+        stl.markdown(
+            """
+            <div class="section-box">
+                Use this form to <b>create a new service ticket</b> when a laptop is dropped off at the desk.
+                Make sure the <b>Employee ID</b>, <b>Asset Tag</b>, issue details, and <b>signature</b> are all filled in.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
         # From your first code: richer issue capture
-        employee_id = stl.text_input("Employee ID")
-        asset_tag = stl.text_input("Laptop Asset Tag")
+        employee_id = stl.text_input(
+            "Employee ID",
+            help="Enter the internal Employee ID number (required)."
+        )
+        asset_tag = stl.text_input(
+            "Laptop Asset Tag",
+            help="Enter the laptop's asset tag or inventory number (required)."
+        )
         issue_type = stl.selectbox(
             "Issue Type",
-            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Other"]
+            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Other"],
+            help="Choose the closest category that matches the reported issue."
         )
-        issue_details = stl.text_area("Provide more details about the issue")
+        issue_details = stl.text_area(
+            "Provide more details about the issue",
+            help="Include symptoms, error messages, when it started, and anything else that might help."
+        )
         full_issue_description = f"{issue_type}: {issue_details}"
 
         # Signature Canvas — always render (not under a button)
@@ -261,9 +305,9 @@ def system():
         # Single submit button for everything (avoid duplicate "Check-In" buttons)
         if stl.button("Submit Check-In"):
             if not (employee_id and asset_tag and issue_details):
-                stl.error("Employee ID, Asset Tag, and Issue Details are required.")
+                stl.error("❌ Employee ID, Asset Tag, and Issue Details are required to create a ticket.")
             elif not signature_data:
-                stl.error("Signature is required. Please sign in the box above.")
+                stl.error("✍️ Signature is required. Please sign in the box above before submitting.")
             else:
                 check_in(employee_id, asset_tag, full_issue_description)
 
@@ -272,22 +316,34 @@ def system():
                 with open(file_path, "wb") as f:
                     f.write(signature_data)
 
-                stl.success(f"Laptop {asset_tag} checked in for Employee {employee_id}")
-                stl.info(f"Signature saved as {file_path}")
+                stl.success(f"✅ Laptop {asset_tag} checked in for Employee {employee_id}.")
+                stl.info(f"🖊 Signature saved as {file_path}")
 
     # -----------------------------
     # CHECK-OUT (added search flow from first code)
     # -----------------------------
     elif choice == "Check-Out":
         stl.subheader("Laptop Check-Out")
+
+        stl.markdown(
+            """
+            <div class="section-box">
+                Use this screen when a <b>device is being returned to the employee</b>.
+                Search by Asset Tag, Employee ID, or keywords from the issue, then confirm the correct ticket.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
         active = view_active_transactions()
         if active.empty:
-            stl.info("No laptops currently checked in.")
+            stl.info("No laptops are currently checked in. You're all caught up! ✅")
         else:
-            # Search bar like in your first code
+            # Search bar with help
             search = stl.text_input(
-                "Search for a device (by Asset Tag, Employee ID, or Issue)",
-                placeholder="Type here and press Enter..."
+                "Search for a device",
+                placeholder="Type Asset Tag, Employee ID, Transaction ID, or keywords from Issue...",
+                help="Start typing to filter active tickets. Press Enter to update the list."
             )
 
             filtered = active
@@ -305,7 +361,7 @@ def system():
                 ]
 
             if search and filtered.empty:
-                stl.warning("No matching devices found.")
+                stl.warning("No matching devices found. Try a different ID, asset tag, or keyword.")
             elif search:
                 stl.write("### Matching Devices")
                 stl.dataframe(filtered, use_container_width=True)
@@ -320,14 +376,15 @@ def system():
                     "Select the device to Check-Out",
                     filtered["label"].tolist(),
                     index=None,
-                    placeholder="Select or type to search for a device..."
+                    placeholder="Pick a device to check out...",
+                    help="Select the correct transaction, then click 'Confirm Check-Out'."
                 )
 
                 if selected:
                     tx_id = filtered.loc[filtered["label"] == selected, "transaction_id"].values[0]
                     if stl.button("Confirm Check-Out"):
                         check_out(int(tx_id))
-                        stl.success(f"Transaction {tx_id} checked out successfully.")
+                        stl.success(f"✅ Transaction {tx_id} checked out successfully.")
             else:
                 # If no search yet, keep a simple quick-pick fallback
                 active = active.copy()
@@ -335,16 +392,32 @@ def system():
                     lambda r: f"Tx#{r['transaction_id']} - {r['asset_tag']} (Employee {r['employee_id']})",
                     axis=1
                 )
-                selected = stl.selectbox("Select Transaction to Check-Out", active["label"].tolist())
+                selected = stl.selectbox(
+                    "Select Transaction to Check-Out",
+                    active["label"].tolist(),
+                    help="You can also use the search box above for easier filtering."
+                )
                 tx_id = active.loc[active["label"] == selected, "transaction_id"].values[0]
                 if stl.button("Confirm Check-Out"):
                     check_out(int(tx_id))
-                    stl.success(f"Transaction {tx_id} checked out successfully.")
+                    stl.success(f"✅ Transaction {tx_id} checked out successfully.")
 
     # -----------------------------
-    # DASHBOARD (robust + visuals + single/range date + pagination)
+    # DASHBOARD (robust + visuals + single/range date + pagination + tabs)
     # -----------------------------
     elif choice == "Dashboard":
+        stl.subheader("Service Desk Dashboard")
+
+        stl.markdown(
+            """
+            <div class="section-box">
+                This dashboard lets you <b>monitor workload, trends, and performance</b> across the service desk.
+                Use the filters below to narrow by <b>date range</b> and <b>issue types</b>. All tabs update together.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
         active_df = view_active_transactions()
         completed_df = view_completed_transactions()
 
@@ -384,8 +457,17 @@ def system():
                     (completed_df["check_out_time"] - completed_df["check_in_time"]).dt.total_seconds() / 3600.0
                 )
 
-        # --- Filters
+        # --- Filters (inside a UI box)
         stl.markdown("### Dashboard Filters")
+        stl.markdown(
+            """
+            <div class="section-box">
+                <b>Tip:</b> Pick a single day or a range, and narrow down by issue type to focus on specific patterns.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
         colf1, colf2 = stl.columns(2)
 
         # Date range over available check_in_time across both tables
@@ -409,7 +491,8 @@ def system():
                 "Date range (by Check-In Date)",
                 value=(all_min, all_max),
                 min_value=all_min,
-                max_value=all_max
+                max_value=all_max,
+                help="Pick a single day or a start–end range. This filters tickets by their check-in date."
             )
 
         # Normalize single date OR range to inclusive timestamps
@@ -423,7 +506,12 @@ def system():
             if "issue_type" in completed_df.columns and not completed_df.empty:
                 all_types.extend(completed_df["issue_type"].dropna().unique().tolist())
             all_types = sorted(pd.unique(pd.Series(all_types)).tolist()) if all_types else []
-            selected_types = stl.multiselect("Issue types", options=all_types, default=all_types)
+            selected_types = stl.multiselect(
+                "Issue types",
+                options=all_types,
+                default=all_types,
+                help="Limit the dashboard to specific issue categories (for example, only Hardware Failures)."
+            )
 
         # Apply filters
         def in_range(series):
@@ -447,207 +535,245 @@ def system():
         else:
             completed_f = completed_df
 
-        # --- KPIs
+        if active_f.empty and completed_f.empty:
+            stl.warning("No matching records for the current filters. Try expanding the date range or issue types.")
+
+        # ----- Dashboard Tabs -----
         stl.markdown("---")
-        k1, k2, k3 = stl.columns(3)
-        k1.metric("Active Items at Service Desk", len(active_f) if not active_f.empty else 0)
-        k2.metric("Completed in Range", len(completed_f) if not completed_f.empty else 0)
-        avg_turn = (
-            completed_f["duration_hours"].mean()
-            if (not completed_f.empty and "duration_hours" in completed_f.columns)
-            else float("nan")
+        tab_overview, tab_activity, tab_issues, tab_logs = stl.tabs(
+            ["📊 Overview", "📈 Daily Activity", "🧩 Issue Types", "📋 Logs"]
         )
-        k3.metric("Avg Turnaround (hrs)", f"{avg_turn:.2f}" if pd.notna(avg_turn) else "—")
 
-        stl.markdown("---")
-
-        # --- Daily check-ins
-        stl.subheader("Daily Activity")
-        if not active_f.empty and "check_in_time" in active_f.columns:
-            ci_daily = (
-                active_f.assign(date=active_f["check_in_time"].dt.date)
-                        .groupby("date").size().rename("check_ins").to_frame()
+        # ========== TAB 1: OVERVIEW ==========
+        with tab_overview:
+            stl.subheader("At a Glance")
+            k1, k2, k3 = stl.columns(3)
+            k1.metric("Active Items at Service Desk", len(active_f) if not active_f.empty else 0)
+            k2.metric("Completed in Range", len(completed_f) if not completed_f.empty else 0)
+            avg_turn = (
+                completed_f["duration_hours"].mean()
+                if (not completed_f.empty and "duration_hours" in completed_f.columns)
+                else float("nan")
             )
-            stl.write("**Check-Ins per Day**")
-            _ci = ci_daily.reset_index().rename(columns={"date": "Date", "check_ins": "Check-Ins"})
-            _ci["Check-Ins"] = _ci["Check-Ins"].astype(int)
+            k3.metric("Avg Turnaround (hrs)", f"{avg_turn:.2f}" if pd.notna(avg_turn) else "—")
 
-            max_ci = int(_ci["Check-Ins"].max()) if len(_ci) else 0
-            domain_max_ci = max(1, max_ci)
+            stl.markdown(
+                """
+                - **Active Items**: Open tickets that are still checked in.
+                - **Completed in Range**: Tickets checked out whose check-in dates fall within your selected range.
+                - **Avg Turnaround**: Average time from check-in to check-out, in hours.
+                """
+            )
 
-            chart_ci = (
-                alt.Chart(_ci)
-                .transform_calculate(Clipped="max(datum['Check-Ins'], 0)")
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Date:T", title="Date"),
-                    y=alt.Y(
-                        "Clipped:Q",
-                        title="Count",
-                        scale=alt.Scale(domainMin=0, domainMax=domain_max_ci, clamp=True, nice=False),
-                        axis=alt.Axis(format="d", tickMinStep=1)
-                    ),
-                    tooltip=[alt.Tooltip("Date:T"), alt.Tooltip("Clipped:Q", title="Check-Ins", format="d")]
+        # ========== TAB 2: DAILY ACTIVITY ==========
+        with tab_activity:
+            stl.subheader("Daily Activity")
+
+            # --- Daily check-ins
+            if not active_f.empty and "check_in_time" in active_f.columns:
+                ci_daily = (
+                    active_f.assign(date=active_f["check_in_time"].dt.date)
+                            .groupby("date").size().rename("check_ins").to_frame()
                 )
-                .properties(height=260, width=1200)
-                .interactive()
-            ).configure_scale(clamp=True)
+                stl.write("**Check-Ins per Day**")
+                _ci = ci_daily.reset_index().rename(columns={"date": "Date", "check_ins": "Check-Ins"})
+                _ci["Check-Ins"] = _ci["Check-Ins"].astype(int)
 
-            stl.altair_chart(chart_ci, use_container_width=True)
-        else:
-            stl.info("No active check-ins for the selected filters.")
+                max_ci = int(_ci["Check-Ins"].max()) if len(_ci) else 0
+                domain_max_ci = max(1, max_ci)
 
-        # --- Daily check-outs
-        if not completed_f.empty and "check_out_time" in completed_f.columns:
-            co_daily = (
-                completed_f.assign(date=completed_f["check_out_time"].dt.date)
-                           .dropna(subset=["date"])
-                           .groupby("date").size().rename("check_outs").to_frame()
-            )
-            stl.write("**Check-Outs per Day**")
-            _co = co_daily.reset_index().rename(columns={"date": "Date", "check_outs": "Check-Outs"})
-            _co["Check-Outs"] = _co["Check-Outs"].astype(int)
+                # X-only zoom/pan, lock Y >= 0
+                x_zoom_ci = alt.selection_interval(bind='scales', encodings=['x'])
 
-            max_co = int(_co["Check-Outs"].max()) if len(_co) else 0
-            domain_max_co = max(1, max_co)
-
-            chart_co = (
-                alt.Chart(_co)
-                .transform_calculate(Clipped="max(datum['Check-Outs'], 0)")
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Date:T", title="Date"),
-                    y=alt.Y(
-                        "Clipped:Q",
-                        title="Count",
-                        scale=alt.Scale(domainMin=0, domainMax=domain_max_co, clamp=True, nice=False),
-                        axis=alt.Axis(format="d", tickMinStep=1)
-                    ),
-                    tooltip=[alt.Tooltip("Date:T"), alt.Tooltip("Clipped:Q", title="Check-Outs", format="d")]
+                chart_ci = (
+                    alt.Chart(_ci)
+                    .transform_calculate(Clipped="max(datum['Check-Ins'], 0)")
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("Date:T", title="Date"),
+                        y=alt.Y(
+                            "Clipped:Q",
+                            title="Count",
+                            scale=alt.Scale(domainMin=0, domainMax=domain_max_ci, clamp=True, nice=False),
+                            axis=alt.Axis(format="d", tickMinStep=1)
+                        ),
+                        tooltip=[alt.Tooltip("Date:T"), alt.Tooltip("Clipped:Q", title="Check-Ins", format="d")]
+                    )
+                    .properties(height=260, width=1200)
+                    .add_params(x_zoom_ci)
+                    .configure_scale(clamp=True)
                 )
-                .properties(height=260, width=1200)
-                .interactive()
-            ).configure_scale(clamp=True)
 
-            stl.altair_chart(chart_co, use_container_width=True)
-        else:
-            stl.info("No completed check-outs for the selected filters.")
-
-        # --- Issue type distribution
-        stl.subheader("Top Issue Types")
-        issue_src = pd.concat(
-            [
-                active_f[["issue_type"]] if ("issue_type" in active_f.columns and not active_f.empty) else pd.DataFrame(columns=["issue_type"]),
-                completed_f[["issue_type"]] if ("issue_type" in completed_f.columns and not completed_f.empty) else pd.DataFrame(columns=["issue_type"]),
-            ],
-            axis=0,
-            ignore_index=True
-        )
-        if not issue_src.empty:
-            top_issues = (
-                issue_src["issue_type"]
-                .value_counts()
-                .rename_axis("Issue Type")
-                .to_frame("Count")
-                .reset_index()
-            )
-            top_issues["Count"] = top_issues["Count"].astype(int)
-
-            max_count = int(top_issues["Count"].max()) if len(top_issues) else 0
-            domain_max_count = max(1, max_count)
-
-            chart_issues = (
-                alt.Chart(top_issues)
-                .transform_calculate(Clipped="max(datum['Count'], 0)")
-                .mark_bar()
-                .encode(
-                    x=alt.X("Issue Type:N", sort="-y", title="Issue Type"),
-                    y=alt.Y(
-                        "Clipped:Q",
-                        title="Count",
-                        scale=alt.Scale(domainMin=0, domainMax=domain_max_count, clamp=True, nice=False),
-                        axis=alt.Axis(format="d", tickMinStep=1)
-                    ),
-                    tooltip=[alt.Tooltip("Issue Type:N"), alt.Tooltip("Clipped:Q", title="Count", format="d")]
-                )
-                .properties(height=300, width=1200)
-                .interactive()
-            ).configure_scale(clamp=True)
-
-            stl.altair_chart(chart_issues, use_container_width=True)
-        else:
-            stl.info("No issues to summarize for the selected filters.")
-
-        # --- Recent Completed table (with duration) + export (now paginated)
-        stl.subheader("Recent Completed (with duration)")
-        if not completed_f.empty:
-            cols = ["transaction_id", "employee_id", "asset_tag", "issue", "issue_type",
-                    "check_in_time", "check_out_time"]
-            if "duration_hours" in completed_f.columns:
-                cols.append("duration_hours")
-            show = completed_f[cols].sort_values("check_out_time", ascending=False).copy()
-
-            rename_map = {
-                "transaction_id": "Tx ID",
-                "employee_id": "Employee ID",
-                "asset_tag": "Asset Tag",
-                "issue": "Issue Description",
-                "issue_type": "Issue Type",
-                "check_in_time": "Check-In Time",
-                "check_out_time": "Check-Out Time",
-                "duration_hours": "Duration (hrs)"
-            }
-            if "duration_hours" in show.columns:
-                show["duration_hours"] = show["duration_hours"].round(2)
-
-            paginated_table(show, key="dash_completed_recent", rename_cols=rename_map, default_page_size=25, height=420)
-
-            csv = show.rename(columns=rename_map).to_csv(index=False).encode("utf-8")
-            stl.download_button(
-                "Download Completed Logs (CSV)",
-                data=csv,
-                file_name="completed_logs.csv",
-                mime="text/csv"
-            )
-        else:
-            stl.info("No completed transactions in the selected range.")
-
-        # ---- Keep your original raw tables under expanders (now paginated) ----
-        stl.markdown("---")
-        with stl.expander("Raw Active Transactions"):
-            if active_df.empty:
-                stl.info("No active check-ins.")
+                stl.altair_chart(chart_ci, use_container_width=True)
             else:
-                paginated_table(
-                    active_df.rename(columns={
-                        'transaction_id': 'Tx ID',
-                        'employee_id': 'Employee ID',
-                        'asset_tag': 'Asset Tag',
-                        'issue': 'Issue Description',
-                        'check_in_time': 'Check-In Time'
-                    }),
-                    key="raw_active",
-                    default_page_size=25,
-                    height=360
+                stl.info("No active check-ins for the selected filters.")
+
+            # --- Daily check-outs
+            if not completed_f.empty and "check_out_time" in completed_f.columns:
+                co_daily = (
+                    completed_f.assign(date=completed_f["check_out_time"].dt.date)
+                               .dropna(subset=["date"])
+                               .groupby("date").size().rename("check_outs").to_frame()
+                )
+                stl.write("**Check-Outs per Day**")
+                _co = co_daily.reset_index().rename(columns={"date": "Date", "check_outs": "Check-Outs"})
+                _co["Check-Outs"] = _co["Check-Outs"].astype(int)
+
+                max_co = int(_co["Check-Outs"].max()) if len(_co) else 0
+                domain_max_co = max(1, max_co)
+
+                x_zoom_co = alt.selection_interval(bind='scales', encodings=['x'])
+
+                chart_co = (
+                    alt.Chart(_co)
+                    .transform_calculate(Clipped="max(datum['Check-Outs'], 0)")
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("Date:T", title="Date"),
+                        y=alt.Y(
+                            "Clipped:Q",
+                            title="Count",
+                            scale=alt.Scale(domainMin=0, domainMax=domain_max_co, clamp=True, nice=False),
+                            axis=alt.Axis(format="d", tickMinStep=1)
+                        ),
+                        tooltip=[alt.Tooltip("Date:T"), alt.Tooltip("Clipped:Q", title="Check-Outs", format="d")]
+                    )
+                    .properties(height=260, width=1200)
+                    .add_params(x_zoom_co)
+                    .configure_scale(clamp=True)
                 )
 
-        with stl.expander("Raw Completed Transactions"):
-            if completed_df.empty:
-                stl.info("No completed transactions yet.")
+                stl.altair_chart(chart_co, use_container_width=True)
             else:
-                paginated_table(
-                    completed_df.rename(columns={
-                        'transaction_id': 'Tx ID',
-                        'employee_id': 'Employee ID',
-                        'asset_tag': 'Asset Tag',
-                        'issue': 'Issue Description',
-                        'check_in_time': 'Check-In Time',
-                        'check_out_time': 'Check-Out Time'
-                    }),
-                    key="raw_completed",
-                    default_page_size=25,
-                    height=360
+                stl.info("No completed check-outs for the selected filters.")
+
+        # ========== TAB 3: ISSUE TYPES ==========
+        with tab_issues:
+            stl.subheader("Top Issue Types")
+            issue_src = pd.concat(
+                [
+                    active_f[["issue_type"]] if ("issue_type" in active_f.columns and not active_f.empty) else pd.DataFrame(columns=["issue_type"]),
+                    completed_f[["issue_type"]] if ("issue_type" in completed_f.columns and not completed_f.empty) else pd.DataFrame(columns=["issue_type"]),
+                ],
+                axis=0,
+                ignore_index=True
+            )
+            if not issue_src.empty:
+                top_issues = (
+                    issue_src["issue_type"]
+                    .value_counts()
+                    .rename_axis("Issue Type")
+                    .to_frame("Count")
+                    .reset_index()
                 )
+                top_issues["Count"] = top_issues["Count"].astype(int)
+
+                max_count = int(top_issues["Count"].max()) if len(top_issues) else 0
+                domain_max_count = max(1, max_count)
+
+                x_zoom_issues = alt.selection_interval(bind='scales', encodings=['x'])
+
+                chart_issues = (
+                    alt.Chart(top_issues)
+                    .transform_calculate(Clipped="max(datum['Count'], 0)")
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Issue Type:N", sort="-y", title="Issue Type"),
+                        y=alt.Y(
+                            "Clipped:Q",
+                            title="Count",
+                            scale=alt.Scale(domainMin=0, domainMax=domain_max_count, clamp=True, nice=False),
+                            axis=alt.Axis(format="d", tickMinStep=1)
+                        ),
+                        tooltip=[alt.Tooltip("Issue Type:N"), alt.Tooltip("Clipped:Q", title="Count", format="d")]
+                    )
+                    .properties(height=300, width=1200)
+                    .add_params(x_zoom_issues)
+                    .configure_scale(clamp=True)
+                )
+
+                stl.altair_chart(chart_issues, use_container_width=True)
+            else:
+                stl.info("No issues to summarize for the selected filters.")
+
+        # ========== TAB 4: LOGS ==========
+        with tab_logs:
+            stl.subheader("Recent Completed (with duration)")
+            if not completed_f.empty:
+                cols = ["transaction_id", "employee_id", "asset_tag", "issue", "issue_type",
+                        "check_in_time", "check_out_time"]
+                if "duration_hours" in completed_f.columns:
+                    cols.append("duration_hours")
+                show = completed_f[cols].sort_values("check_out_time", ascending=False).copy()
+
+                rename_map = {
+                    "transaction_id": "Tx ID",
+                    "employee_id": "Employee ID",
+                    "asset_tag": "Asset Tag",
+                    "issue": "Issue Description",
+                    "issue_type": "Issue Type",
+                    "check_in_time": "Check-In Time",
+                    "check_out_time": "Check-Out Time",
+                    "duration_hours": "Duration (hrs)"
+                }
+                if "duration_hours" in show.columns:
+                    show["duration_hours"] = show["duration_hours"].round(2)
+
+                paginated_table(
+                    show,
+                    key="dash_completed_recent",
+                    rename_cols=rename_map,
+                    default_page_size=25,
+                    height=420
+                )
+
+                csv = show.rename(columns=rename_map).to_csv(index=False).encode("utf-8")
+                stl.download_button(
+                    "Download Completed Logs (CSV)",
+                    data=csv,
+                    file_name="completed_logs.csv",
+                    mime="text/csv",
+                    help="Export the currently filtered completed tickets as a CSV file."
+                )
+            else:
+                stl.info("No completed transactions in the selected range.")
+
+            stl.markdown("---")
+            stl.subheader("Raw Tables (All Data Within Filters)")
+            with stl.expander("Raw Active Transactions"):
+                if active_df.empty:
+                    stl.info("No active check-ins.")
+                else:
+                    paginated_table(
+                        active_df.rename(columns={
+                            'transaction_id': 'Tx ID',
+                            'employee_id': 'Employee ID',
+                            'asset_tag': 'Asset Tag',
+                            'issue': 'Issue Description',
+                            'check_in_time': 'Check-In Time'
+                        }),
+                        key="raw_active",
+                        default_page_size=25,
+                        height=360
+                    )
+
+            with stl.expander("Raw Completed Transactions"):
+                if completed_df.empty:
+                    stl.info("No completed transactions yet.")
+                else:
+                    paginated_table(
+                        completed_df.rename(columns={
+                            'transaction_id': 'Tx ID',
+                            'employee_id': 'Employee ID',
+                            'asset_tag': 'Asset Tag',
+                            'issue': 'Issue Description',
+                            'check_in_time': 'Check-In Time',
+                            'check_out_time': 'Check-Out Time'
+                        }),
+                        key="raw_completed",
+                        default_page_size=25,
+                        height=360
+                    )
 
 if __name__ == '__main__':
     system()
