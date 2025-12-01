@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 Revised Dashboard (prototype)
+
 Base features:
 - Safe secrets access (won't crash if secrets.toml missing)
 - Uses fpdf2 (from fpdf import FPDF)
@@ -14,20 +16,23 @@ SPRINT 3:
 - Daily/Weekly reporting functions
 - Export option: PDF-only (with charts & summary)
 - Supports "Single day" selection in Reports
+
+SPRINT 4 (small polish):
+- Loading spinners for report build & PDF render
+- Clearer success/failure messages with context
 """
 
 import os
-import io
 import sqlite3
 import tempfile
 import streamlit as stl
 import pandas as pd
 from datetime import datetime, date, timedelta
 
-# PDF + Email (existing)
-from fpdf import FPDF          # pip install fpdf2
+# PDF + Email
+from fpdf import FPDF            # pip install fpdf2
 import ssl
-import certifi                 # pip install certifi
+import certifi                   # pip install certifi
 import smtplib
 from email.utils import formataddr
 from email.mime.multipart import MIMEMultipart
@@ -35,8 +40,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
-# --- Charts for PDF (NEW) ---
-# We render charts with matplotlib (non-interactive Agg backend)
+# Charts for PDF (non-interactive backend)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -52,7 +56,6 @@ stl.markdown(
     unsafe_allow_html=True
 )
 with stl.sidebar:
-    # stl.image("static/logo.png", width=200)
     stl.markdown("---")
 
 
@@ -81,10 +84,7 @@ def database_connection():
     return conn
 
 def tables():
-    """
-    Create tables if they don't exist.
-    NOTE: Laptops.asset_tag is TEXT PRIMARY KEY so we can support tags like 'PC-12345'.
-    """
+    """Create tables if they don't exist."""
     conn = database_connection()
     cur = conn.cursor()
     cur.execute("PRAGMA foreign_keys = ON")
@@ -95,6 +95,7 @@ def tables():
             email TEXT NOT NULL
         );
 
+        /* Allow alphanumeric tags (e.g. PC-500123). Make it the PK. */
         CREATE TABLE IF NOT EXISTS Laptops (
             asset_tag  TEXT PRIMARY KEY,
             model      TEXT NOT NULL DEFAULT '',
@@ -155,7 +156,7 @@ def upsert_employee(employee_id: int, name: str, email: str):
 def check_in(emp_id, asset_tag, issue):
     """Insert and return new transaction id (ensures FK parents exist)."""
     ensure_laptop_exists(asset_tag)
-    ensure_employee_exists(emp_id)  # create minimal row if needed
+    ensure_employee_exists(emp_id)
     conn = database_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -223,12 +224,32 @@ def get_employee_meta(employee_id: int):
     return None, None
 
 
-# ---------------- Email & PDF (existing) ----------------
+# ---------------- Email & PDF helpers ----------------
 def confirmation_code(tx_id: int) -> str:
     return f"CN-{tx_id:06d}"
 
 def parse_issue_type(issue_text: str) -> str:
     return (issue_text.split(":", 1)[0] or "Issue").strip()
+
+def _pdf_text(s) -> str:
+    """Sanitize text to core FPDF fonts (avoid Unicode errors)."""
+    if s is None:
+        return ""
+    if not isinstance(s, str):
+        s = str(s)
+    repl = {
+        "\u2013": "-", "\u2014": "-",            # dashes
+        "\u2018": "'", "\u2019": "'",            # single quotes
+        "\u201c": '"', "\u201d": '"',            # double quotes
+        "\u2026": "...", "\u00a0": " ",          # ellipsis, nbsp
+    }
+    for k, v in repl.items():
+        s = s.replace(k, v)
+    try:
+        s.encode("latin-1")
+        return s
+    except UnicodeEncodeError:
+        return s.encode("latin-1", "replace").decode("latin-1")
 
 def create_pdf_receipt(tx_tuple, emp_name, emp_email, kind="Check-In"):
     """Create a simple one-page PDF receipt and return (filepath, confirmation_number)."""
@@ -238,19 +259,19 @@ def create_pdf_receipt(tx_tuple, emp_name, emp_email, kind="Check-In"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=14)
-    pdf.cell(190, 10, txt="SLAC Service Desk - {} Receipt".format(kind), ln=True, align='C')
+    pdf.cell(190, 10, txt=_pdf_text(f"SLAC Service Desk - {kind} Receipt"), ln=True, align='C')
     pdf.set_font("Arial", size=11)
     pdf.ln(6)
-    pdf.cell(190, 8, txt=f"Confirmation Number: {cn}", ln=True)
-    pdf.cell(190, 8, txt=f"Transaction ID: {tx_id}", ln=True)
-    pdf.cell(190, 8, txt=f"Employee: {emp_name or ''} (ID: {emp_id})", ln=True)
-    pdf.cell(190, 8, txt=f"Employee Email: {emp_email or '—'}", ln=True)
-    pdf.cell(190, 8, txt=f"Asset Tag: {asset_tag}", ln=True)
-    pdf.cell(190, 8, txt=f"Issue Type: {parse_issue_type(issue)}", ln=True)
-    pdf.multi_cell(190, 8, txt=f"Issue Details: {issue}", align='L')
-    pdf.cell(190, 8, txt=f"Check-In Time: {check_in}", ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Confirmation Number: {cn}"), ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Transaction ID: {tx_id}"), ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Employee: {emp_name or ''} (ID: {emp_id})"), ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Employee Email: {emp_email or '-'}"), ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Asset Tag: {asset_tag}"), ln=True)
+    pdf.cell(190, 8, txt=_pdf_text(f"Issue Type: {parse_issue_type(issue)}"), ln=True)
+    pdf.multi_cell(190, 8, txt=_pdf_text(f"Issue Details: {issue}"), align='L')
+    pdf.cell(190, 8, txt=_pdf_text(f"Check-In Time: {check_in}"), ln=True)
     if kind == "Check-Out" and check_out:
-        pdf.cell(190, 8, txt=f"Check-Out Time: {check_out}", ln=True)
+        pdf.cell(190, 8, txt=_pdf_text(f"Check-Out Time: {check_out}"), ln=True)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_tx{tx_id}.pdf")
     tmp.close()
@@ -258,7 +279,7 @@ def create_pdf_receipt(tx_tuple, emp_name, emp_email, kind="Check-In"):
     return tmp.name, cn
 
 def send_email_with_attachment_smtp(to_addr, subject, html_body, attachment_path):
-    """SMTP send (Gmail-friendly, TLS with certifi CA)"""
+    """SMTP send (Gmail-friendly, TLS with certifi CA)."""
     host        = _get_secret("SMTP_HOST")
     port        = int(_get_secret("SMTP_PORT", 587))
     use_tls     = _bool_secret("SMTP_USE_TLS", True)
@@ -281,7 +302,6 @@ def send_email_with_attachment_smtp(to_addr, subject, html_body, attachment_path
     recipients = [to_addr] + cc_list
 
     msg.attach(MIMEText(html_body, "html"))
-
     with open(attachment_path, "rb") as f:
         part = MIMEBase("application", "pdf")
         part.set_payload(f.read())
@@ -317,7 +337,7 @@ def build_email_html(emp_name, emp_id, asset_tag, issue, check_in, check_out, cn
       <tr><td><b>Confirmation #</b></td><td>{cn}</td></tr>
     </table>
     <p>The PDF receipt is attached for your records.</p>
-    <p>— Service Desk</p>
+    <p>- Service Desk</p>
     """
 
 def email_receipt(tx_tuple, kind="Check-In"):
@@ -340,7 +360,7 @@ def email_receipt(tx_tuple, kind="Check-In"):
         except Exception: pass
 
 
-# ---------------- SPRINT 3: Reporting + PDF Export ----------------
+# ---------------- Reporting + PDF Export ----------------
 def _fetch_all_transactions() -> pd.DataFrame:
     """Read ALL transactions and convert timestamps to pandas datetime."""
     conn = database_connection()
@@ -368,7 +388,7 @@ def report_dataframe(period: str, kind: str, start_d: date, end_d: date):
     start_dt = pd.to_datetime(start_d)
     end_dt = pd.to_datetime(end_d) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
 
-    # Build filtered "raw" datasets for each event with a common 'timestamp' column
+    # Filtered raw datasets with a common 'timestamp'
     df_in = df[df["check_in_time"].between(start_dt, end_dt, inclusive="both")][
         ["transaction_id", "employee_id", "asset_tag", "issue", "check_in_time"]
     ].rename(columns={"check_in_time": "timestamp"})
@@ -419,8 +439,7 @@ def report_dataframe(period: str, kind: str, start_d: date, end_d: date):
     raw = raw.sort_values(["Period", "timestamp", "transaction_id"]).reset_index(drop=True)
     return agg, raw, title
 
-
-# --- Chart helpers (png files) ---
+# Chart helpers (PNG files)
 def _chart_counts_by_period(agg_df: pd.DataFrame, title: str) -> str:
     """Create a side-by-side bar chart of Check-Ins vs Check-Outs per Period; return PNG filepath."""
     periods = agg_df["Period"].tolist()
@@ -470,35 +489,6 @@ def _chart_top_issue_types(raw_df: pd.DataFrame, title: str, top_n: int = 10) ->
     plt.close(fig)
     return tmp.name
 
-
-# --- PDF text sanitizer (prevents FPDFUnicodeEncodingException) ---
-def _pdf_text(s) -> str:
-    """
-    Replace common Unicode punctuation with ASCII so FPDF's core fonts accept it.
-    Falls back to latin-1 replacement if anything remains non-encodable.
-    """
-    if s is None:
-        return ""
-    if not isinstance(s, str):
-        s = str(s)
-    repl = {
-        "\u2013": "-",  # en dash
-        "\u2014": "-",  # em dash
-        "\u2018": "'", "\u2019": "'",  # quotes
-        "\u201c": '"', "\u201d": '"',
-        "\u2026": "...",             # ellipsis
-        "\u00a0": " ",               # nbsp
-    }
-    for k, v in repl.items():
-        s = s.replace(k, v)
-    try:
-        s.encode("latin-1")
-        return s
-    except UnicodeEncodeError:
-        return s.encode("latin-1", "replace").decode("latin-1")
-
-
-# --- Build a PDF report (bytes) ---
 def build_report_pdf_bytes(display_title: str,
                            agg_df: pd.DataFrame,
                            raw_df: pd.DataFrame,
@@ -586,7 +576,6 @@ def system():
     tables()
     stl.title("SLAC Service Desk System")
 
-    # Reports export to PDF only
     menu = ["Check-In", "Check-Out", "Dashboard", "Reports"]
     choice = stl.sidebar.selectbox("Menu", menu)
 
@@ -622,10 +611,19 @@ def system():
                 if employee_email:
                     upsert_employee(emp_id_int, employee_name, employee_email)
 
+                # Enhanced success/failure messaging with context
                 if details:
-                    email_receipt(details, "Check-In")
+                    email_sent = email_receipt(details, "Check-In")
+                    tx_id = details[0]
+                    conf = confirmation_code(tx_id)
+                    summary = f"Tx #{tx_id} · {conf} · Emp {emp_id_int} · Asset {asset_tag}"
+                    if email_sent:
+                        stl.success(f"Check-In complete. {summary}. Receipt emailed.")
+                    else:
+                        stl.info(f"Check-In complete (email not sent). {summary}.")
+                else:
+                    stl.error("Check-In created, but details could not be retrieved.")
 
-                stl.success(f"Laptop {asset_tag} checked in for Employee {emp_id_int}")
                 stl.markdown("---")
                 stl.subheader("Check-In Confirmation Receipt")
                 if details:
@@ -673,7 +671,6 @@ def system():
                     lambda r: f"Tx#{r['transaction_id']} - {r['asset_tag']} (Employee {r['employee_id']})",
                     axis=1
                 )
-
                 selected = stl.selectbox(
                     "Select the device to Check-Out",
                     filtered["label"].tolist(),
@@ -687,10 +684,19 @@ def system():
                         check_out(int(tx_id))
                         details = get_transaction_details(int(tx_id))
 
+                        # Enhanced success/failure messaging with context
                         if details:
-                            email_receipt(details, "Check-Out")
+                            email_sent = email_receipt(details, "Check-Out")
+                            tid = details[0]
+                            conf = confirmation_code(tid)
+                            summary = f"Tx #{tid} · {conf} · Emp {details[1]} · Asset {details[2]}"
+                            if email_sent:
+                                stl.success(f"Check-Out complete. {summary}. Receipt emailed.")
+                            else:
+                                stl.info(f"Check-Out complete (email not sent). {summary}.")
+                        else:
+                            stl.error("Check-Out updated, but details could not be retrieved.")
 
-                        stl.success(f"Transaction {tx_id} checked out successfully.")
                         stl.markdown("---")
                         stl.subheader("Check-Out Confirmation Receipt")
                         if details:
@@ -750,7 +756,7 @@ def system():
             })
             stl.dataframe(completed_df, use_container_width=True)
 
-    # ---------- Reports (with Single Day + PDF export) ----------
+    # ---------- Reports ----------
     elif choice == "Reports":
         stl.subheader("Daily & Weekly Reports")
 
@@ -760,7 +766,7 @@ def system():
         with col2:
             kind = stl.selectbox("Event Type", ["Both", "Check-Ins", "Check-Outs"])
         with col3:
-            single_day = stl.checkbox("Single day", value=False, help="Check to report for exactly one day")
+            single_day = stl.checkbox("Single day", value=False, help="Report for exactly one day")
             if single_day:
                 picked_day = stl.date_input("Pick a day", value=date.today())
                 if isinstance(picked_day, tuple):
@@ -777,7 +783,10 @@ def system():
                     stl.warning("Please pick a start and end date.")
                     stl.stop()
 
-        agg_df, raw_df, title = report_dataframe(period, kind, start_d, end_d)
+        # Spinner while building the report
+        with stl.spinner("Building report…"):
+            agg_df, raw_df, title = report_dataframe(period, kind, start_d, end_d)
+
         display_title = title
         if period == "Daily" and start_d == end_d:
             display_title = f"{kind} - {start_d} (Daily)"
@@ -795,16 +804,18 @@ def system():
         stl.markdown("#### Raw Rows")
         stl.dataframe(raw_df, use_container_width=True)
 
-        # --- PDF Export ONLY ---
-        pdf_bytes = build_report_pdf_bytes(
-            display_title=display_title,
-            agg_df=agg_df,
-            raw_df=raw_df,
-            period=period,
-            kind=kind,
-            start_d=start_d,
-            end_d=end_d
-        )
+        # Spinner while rendering PDF
+        with stl.spinner("Rendering PDF…"):
+            pdf_bytes = build_report_pdf_bytes(
+                display_title=display_title,
+                agg_df=agg_df,
+                raw_df=raw_df,
+                period=period,
+                kind=kind,
+                start_d=start_d,
+                end_d=end_d
+            )
+
         fname_base = f"report_{period}_{kind}_{start_d}_{end_d}".replace(" ", "_")
         stl.download_button(
             "🖨️ Download Report (PDF)",
