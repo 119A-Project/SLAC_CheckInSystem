@@ -17,6 +17,7 @@ from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import io
 import tempfile
+import re  # [VALIDATION] for basic email validation
 
 # PDF + Email
 from fpdf import FPDF          # <- install package: fpdf2
@@ -162,7 +163,6 @@ def check_out(transaction_id):
     connect.commit()
     connect.close()
 
-
 def view_active_transactions():
     connect = database_connection()
     df = pd.read_sql("""
@@ -173,7 +173,6 @@ def view_active_transactions():
     """, connect)
     connect.close()
     return df
-
 
 def view_completed_transactions():
     connect = database_connection()
@@ -233,7 +232,6 @@ def scan_asset_tags():
             # Optionally draw a rectangle around the detected code
             points = obj.polygon
             if points:
-                # If the points are not a list of lists, convert to numpy array for cv2.polylines
                 if len(points) > 4: 
                     hull = cv2.convexHull(np.array([point for point in points], dtype=np.int32))
                     cv2.polylines(frame, [hull], True, (0, 255, 0), 2)
@@ -241,20 +239,15 @@ def scan_asset_tags():
                     for i in range(len(points)):
                         cv2.line(frame, points[i], points[(i+1) % len(points)], (0, 255, 0), 2)
 
-            # Put the data text near the barcode
             cv2.putText(frame, obj.data.decode('utf-8'), (obj.rect.left, obj.rect.top - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-
-        # Display the frame
         cv2.imshow("Asset Tag Scanner", frame)
 
-        # Break the loop when 'q' or 'Esc' key is pressed
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q') or key == 27:
             break
 
-    # Release the camera and close all windows
     cap.release()
     cv2.destroyAllWindows()
 
@@ -323,7 +316,6 @@ def send_email_with_attachment_smtp(to_addr, subject, html_body, attachment_path
     msg.attach(part)
 
     try:
-        # Use certifi CA bundle for TLS so macOS trust works reliably
         tls_ctx = ssl.create_default_context(cafile=certifi.where())
 
         server = smtplib.SMTP(host, port, timeout=20)
@@ -372,6 +364,83 @@ def email_receipt(tx_tuple, kind="Check-In"):
         try: os.remove(pdf_path)
         except Exception: pass
 
+
+# ---------------- Status tag helpers (NEW) ----------------
+GREEN_BG  = "#e8f5e9"   # ✅ Resolved
+YELLOW_BG = "#fff8e1"   # 🟡 Waiting
+RED_BG    = "#ffebee"   # 🔴 Overdue
+DEFAULT_BG = ""          # 🆕 New — no tint
+
+def _ensure_dt(df: pd.DataFrame, cols):
+    df = df.copy()
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors="coerce", utc=True)
+    return df
+
+def compute_status_tag(df: pd.DataFrame, *, completed: bool) -> pd.DataFrame:
+    df = _ensure_dt(df, ["check_in_time", "check_out_time"])
+
+    if completed:
+        out = df.copy()
+        age_hours = np.maximum(
+            (out["check_out_time"] - out["check_in_time"]).dt.total_seconds() / 3600.0,
+            0
+        )
+        out["Age (hrs)"] = age_hours.astype(int)
+        out["Status"] = "✅ Resolved"
+        return out
+
+    now = pd.Timestamp.now(tz="UTC")
+    out = df.copy()
+    age_hours = np.maximum(
+        (now - out["check_in_time"]).dt.total_seconds() / 3600.0,
+        0
+    )
+    out["Status"] = np.select(
+        [
+            age_hours < 4,
+            (age_hours >= 4) & (age_hours < 24),
+            age_hours >= 24
+        ],
+        ["🆕 New", "🟡 Waiting", "🔴 Overdue"],
+        default="🆕 New"
+    )
+    out["Age (hrs)"] = age_hours.astype(int)
+    return out
+
+def style_by_status(df: pd.DataFrame):
+    def row_bg(row):
+        s = str(row.get("Status", ""))
+        if "Overdue" in s:
+            bg = RED_BG
+        elif "Waiting" in s:
+            bg = YELLOW_BG
+        elif "Resolved" in s:
+            bg = GREEN_BG
+        elif "New" in s:
+            bg = DEFAULT_BG
+        else:
+            bg = ""
+        return [f"background-color: {bg}" if bg else "" for _ in row]
+    return df.style.apply(row_bg, axis=1)
+
+def color_counts(df: pd.DataFrame):
+    vc = df.get("Status", pd.Series(dtype=str)).value_counts()
+    reds    = int(vc.get("🔴 Overdue", 0))
+    yellows = int(vc.get("🟡 Waiting", 0))
+    news    = int(vc.get("🆕 New", 0))
+    return reds, yellows, news
+
+
+# ---------------- Simple validators (added) ----------------
+def _is_valid_email(addr: str) -> bool:
+    if not addr:
+        return False
+    addr = addr.strip()
+    return re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", addr) is not None
+
+
 # ---------------- App UI ----------------
 def system():
     tables()
@@ -411,7 +480,7 @@ def system():
 
             if value != stl.session_state.scanned_asset_tag:
                 stl.session_state.scanned_asset_tag = value
-                stl.session_state.asset_tag_input_key += 1  # triggers new input render
+                stl.session_state.asset_tag_input_key += 1
                 stl.success(f"Scanned Asset Tag: {value}")
                 found_new_tag = True
                 stl.rerun() 
@@ -455,14 +524,32 @@ def system():
             if not (employee_id and asset_tag and issue_details):
                 stl.error("Employee ID, Asset Tag, and Issue Details are required.")
                 stl.stop()
+
             try:
                 emp_id_int = int(str(employee_id).strip())
+                if emp_id_int <= 0:
+                    stl.error("Employee ID must be a positive number.")
+                    stl.stop()
             except ValueError:
                 stl.error("Employee ID must be a number.")
                 stl.stop()
 
             if not (canvas_result.json_data and any(obj.get("path") for obj in canvas_result.json_data.get("objects", []))):
                 stl.error("Signature is required. Please sign in the box above.")
+                stl.stop()
+
+            if employee_email and (not _is_valid_email(employee_email)):
+                stl.error("Please enter a valid email address (e.g., name@example.com).")
+                stl.stop()
+
+            conn = database_connection()
+            exists = conn.execute(
+                "SELECT 1 FROM Transactions WHERE asset_tag=? AND status='Checked-In' LIMIT 1",
+                (str(asset_tag),)
+            ).fetchone()
+            conn.close()
+            if exists:
+                stl.error(f"Device {asset_tag} is already checked in. Check it out before creating a new check-in.")
                 stl.stop()
                 
             ensure_employee_exists(emp_id_int, employee_name or "", employee_email or "")
@@ -477,15 +564,12 @@ def system():
 
             details = get_transaction_details(new_tx_id)
 
-            # Update name/email if provided (optional)
             if employee_email:
                 upsert_employee(emp_id_int, employee_name, employee_email)
 
-            # Email + PDF
             if details:
                 email_receipt(details, "Check-In")
     
-            # On-screen receipt
             stl.success(f"Laptop {asset_tag} checked in for Employee {emp_id_int}")
             stl.markdown("---")
             stl.subheader("Check-In Confirmation Receipt")
@@ -527,10 +611,19 @@ def system():
                 stl.warning("No matching devices found.")
             elif search:
                 stl.write("### Matching Devices")
-                stl.dataframe(filtered, use_container_width=True)
+
+                filtered = compute_status_tag(filtered, completed=False)
+                nice = filtered.rename(columns={
+                    "transaction_id": "Tx ID",
+                    "employee_id": "Employee ID",
+                    "asset_tag": "Asset Tag",
+                    "issue": "Issue Description",
+                    "check_in_time": "Check-In Time"
+                })[["Tx ID", "Employee ID", "Asset Tag", "Issue Description", "Check-In Time", "Age (hrs)", "Status"]]
+                stl.dataframe(style_by_status(nice), use_container_width=True)
 
                 filtered["label"] = filtered.apply(
-                    lambda r: f"Tx#{r['transaction_id']} - {r['asset_tag']} (Employee {r['employee_id']})",
+                    lambda r: f"{r['Status']} — Tx#{r['transaction_id']} · {r['asset_tag']} (Emp {r['employee_id']})",
                     axis=1
                 )
 
@@ -557,29 +650,31 @@ def system():
                     )
 
                     if stl.button("Confirm Check-Out"):
-                       if canvas_result.json_data and any(obj.get("path") for obj in canvas_result.json_data.get("objects", [])):
-                           check_out(int(tx_id))
-                           details = get_transaction_details(int(tx_id))
+                       if not (canvas_result.json_data and any(obj.get("path") for obj in canvas_result.json_data.get("objects", []))):
+                           stl.error("Signature is required. Please sign in the box above.")
+                           stl.stop()
 
-                           if details:
-                                email_receipt(details, "Check-Out")
+                       check_out(int(tx_id))
 
-                           stl.success(f"Transaction {tx_id} checked out successfully.")
-                           stl.balloons()
+                       details = get_transaction_details(int(tx_id))
 
-                           stl.markdown("---")
-                           stl.subheader("Check-Out Confirmation Receipt")
-                           
-                           if details:
-                                stl.markdown(f"**Confirmation #:** `{confirmation_code(details[0])}`")
-                                stl.markdown(f"**Transaction ID:** `{details[0]}`")
-                                stl.markdown(f"**Employee ID:** `{details[1]}`")
-                                stl.markdown(f"**Asset Tag:** `{details[2]}`")
-                                stl.markdown(f"**Check-In Time:** {details[4]}")
-                                stl.markdown(f"**Check-Out Time:** {details[5]}")
-                    else:
-                        stl.warning("Please provide your signature before confirming check-out.")
-            
+                       if details:
+                            email_receipt(details, "Check-Out")
+
+                       stl.success(f"Transaction {tx_id} checked out successfully.")
+                       stl.balloons()
+
+                       stl.markdown("---")
+                       stl.subheader("Check-Out Confirmation Receipt")
+                       
+                       if details:
+                            stl.markdown(f"**Confirmation #:** `{confirmation_code(details[0])}`")
+                            stl.markdown(f"**Transaction ID:** `{details[0]}`")
+                            stl.markdown(f"**Employee ID:** `{details[1]}`")
+                            stl.markdown(f"**Asset Tag:** `{details[2]}`")
+                            stl.markdown(f"**Check-In Time:** {details[4]}")
+                            stl.markdown(f"**Check-Out Time:** {details[5]}")
+
     elif choice == "Dashboard":
         active_df = view_active_transactions()
         completed_df = view_completed_transactions()
@@ -606,33 +701,57 @@ def system():
         if active_df.empty:
             stl.info("No active check-ins match your search.")
         else:
-            active_df.rename(columns={
+            active_df = compute_status_tag(active_df, completed=False)
+
+            r, y, n = color_counts(active_df)
+            c1, c2, c3 = stl.columns(3)
+            c1.metric("🔴 Overdue", r)
+            c2.metric("🟡 Waiting", y)
+            c3.metric("🆕 New", n)
+
+            active_pretty = active_df.rename(columns={
                 'transaction_id': 'Tx ID',
                 'employee_id': 'Employee ID',
                 'asset_tag': 'Asset Tag',
                 'issue': 'Issue Description',
                 'check_in_time': 'Check-In Time'
-            }, inplace=True)
-            stl.dataframe(active_df, use_container_width=True)
+            })[["Tx ID", "Employee ID", "Asset Tag", "Issue Description", "Check-In Time", "Age (hrs)", "Status"]]
+            stl.dataframe(style_by_status(active_pretty), use_container_width=True)
 
         stl.subheader("Completed Transactions")
         if completed_df.empty:
             stl.info("No completed transactions yet.")
         else:
-            completed_df.rename(columns={
+            completed_df = compute_status_tag(completed_df, completed=True)
+
+            completed_pretty = completed_df.rename(columns={
                 'transaction_id': 'Tx ID',
                 'employee_id': 'Employee ID',
                 'asset_tag': 'Asset Tag',
                 'issue': 'Issue Description',
                 'check_in_time': 'Check-In Time',
                 'check_out_time': 'Check-Out Time'
-            }, inplace=True)
+            })[["Tx ID", "Employee ID", "Asset Tag", "Issue Description", "Check-In Time", "Check-Out Time", "Age (hrs)", "Status"]]
 
-            completed_df["Tx ID"] = completed_df["Tx ID"].astype(str)
-            completed_df["Employee ID"] = completed_df["Employee ID"].astype(str)
-            completed_df["Asset Tag"] = completed_df["Asset Tag"].astype(str)
-            stl.dataframe(completed_df, use_container_width=True)
+            completed_pretty["Tx ID"] = completed_pretty["Tx ID"].astype(str)
+            completed_pretty["Employee ID"] = completed_pretty["Employee ID"].astype(str)
+            completed_pretty["Asset Tag"] = completed_pretty["Asset Tag"].astype(str)
+            stl.dataframe(style_by_status(completed_pretty), use_container_width=True)
 
+    # ------------------- FOOTER (NEW FEATURE) -------------------
+    stl.markdown("---")
+    stl.markdown(
+        """
+        <div style="text-align: center; font-size: 12px; color: gray;">
+            <strong>SLAC Service Desk</strong><br>
+            Version 1 • © 2025<br>
+            Contact: (650) 926-4357 &nbsp;|&nbsp; SLAC x4357 (HELP)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    # -------------------------------------------------------------
 
 if __name__ == '__main__':
     system()
+
