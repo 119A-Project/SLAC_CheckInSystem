@@ -449,6 +449,12 @@ def system():
     menu = ["Check-In", "Check-Out", "Dashboard"]
     choice = stl.sidebar.selectbox("Menu", menu)
 
+    # Initialize Canvas Session Keys if not present (for clearing functionality)
+    if "checkin_canvas_key" not in stl.session_state:
+        stl.session_state.checkin_canvas_key = 0
+    if "checkout_canvas_key" not in stl.session_state:
+        stl.session_state.checkout_canvas_key = 0
+
     if choice == "Check-In":
         stl.subheader("Laptop Check-In")
         if "scanned_asset_tag" not in stl.session_state:
@@ -456,14 +462,26 @@ def system():
         if "asset_tag_input_key" not in stl.session_state:
             stl.session_state.asset_tag_input_key = 0
         
-        employee_id = stl.text_input("Employee ID")
+        # ---------------- CALLBACK FUNCTION ----------------
+        def clear_checkin_form():
+            """Reset all Check-In session states here"""
+            stl.session_state["checkin_emp_id"] = ""
+            stl.session_state["checkin_emp_name"] = ""
+            stl.session_state["checkin_emp_email"] = ""
+            stl.session_state["checkin_issue_details"] = ""
+            stl.session_state.scanned_asset_tag = ""
+            stl.session_state.asset_tag_input_key += 1
+            stl.session_state.checkin_canvas_key += 1
+        # ---------------------------------------------------
+
+        employee_id = stl.text_input("Employee ID", key="checkin_emp_id")
         asset_tag = stl.text_input(
             "Laptop Asset Tag",
             value=stl.session_state.scanned_asset_tag,
             key=f"asset_tag_input{stl.session_state.asset_tag_input_key}"
         )
-        employee_name = stl.text_input("Employee Name")
-        employee_email = stl.text_input("Employee Email", placeholder="name@domain.com")
+        employee_name = stl.text_input("Employee Name", key="checkin_emp_name")
+        employee_email = stl.text_input("Employee Email", placeholder="name@domain.com", key="checkin_emp_email")
 
         picture = stl.camera_input("Take a picture of the asset tag")
         
@@ -490,12 +508,15 @@ def system():
 
         issue_type = stl.selectbox(
             "Issue Type",
-            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Other"]
+            ["Hardware Failure", "Software Request", "Performance Issue", "Account Lockout", "Other"],
+            key="checkin_issue_type"
         )
-        issue_details = stl.text_area("Provide more details about the issue")
+        issue_details = stl.text_area("Provide more details about the issue", key="checkin_issue_details")
         full_issue_description = f"{issue_type}: {issue_details}"
 
         stl.write("Please provide your digital signature below:")
+        
+        # Dynamic key for canvas to allow clearing
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)",
             stroke_width=2,
@@ -504,7 +525,7 @@ def system():
             height=150,
             width=400,
             drawing_mode="freedraw",
-            key="signature_canvas",
+            key=f"signature_canvas_checkin_{stl.session_state.checkin_canvas_key}",
         )
 
         signature_data = None
@@ -520,7 +541,17 @@ def system():
                 img.save(buf, format="PNG")
                 signature_data = buf.getvalue()
 
-        if stl.button("Confirm Check-In"):
+        # Layout for Confirm and Clear buttons side by side
+        col1, col2 = stl.columns([1, 1])
+
+        with col1:
+            confirm_btn = stl.button("Confirm Check-In", use_container_width=True)
+        
+        with col2:
+            # We use on_click to fire the callback BEFORE the rerun happens
+            stl.button("Clear Form", on_click=clear_checkin_form, use_container_width=True)
+
+        if confirm_btn:
             if not (employee_id and asset_tag and issue_details):
                 stl.error("Employee ID, Asset Tag, and Issue Details are required.")
                 stl.stop()
@@ -589,9 +620,18 @@ def system():
         if active.empty:
             stl.info("No laptops currently checked in.")
         else:
+            # ---------------- CALLBACK FUNCTION ----------------
+            def clear_checkout_form():
+                """Reset all Check-Out session states here"""
+                stl.session_state["checkout_search"] = ""
+                stl.session_state["checkout_select"] = None
+                stl.session_state.checkout_canvas_key += 1
+            # ---------------------------------------------------
+
             search = stl.text_input(
                 "Search for a device (by Asset Tag, Employee ID, or Issue)",
-                placeholder="Type here and press Enter..."
+                placeholder="Type here and press Enter...",
+                key="checkout_search"
             )
 
             filtered = active
@@ -631,13 +671,15 @@ def system():
                     "Select the device to Check-Out",
                     filtered["label"].tolist(),
                     index=None,
-                    placeholder="Select a device from the list..."
+                    placeholder="Select a device from the list...",
+                    key="checkout_select"
                 )
 
                 if selected:
                     tx_id = filtered.loc[filtered["label"] == selected, "transaction_id"].values[0]
 
                     stl.markdown("### Please sign below to confirm the check-out:")
+                    # Dynamic key for canvas clearing
                     canvas_result = st_canvas(
                        fill_color="white",
                        stroke_width=2,
@@ -646,10 +688,18 @@ def system():
                        width=400,
                        height=150,
                        drawing_mode="freedraw",
-                       key="signature_canvas"
+                       key=f"signature_canvas_checkout_{stl.session_state.checkout_canvas_key}"
                     )
 
-                    if stl.button("Confirm Check-Out"):
+                    col1, col2 = stl.columns([1, 1])
+
+                    with col1:
+                        confirm_btn = stl.button("Confirm Check-Out", use_container_width=True)
+                    with col2:
+                        # Use on_click callback to prevent StreamlitAPIException
+                        stl.button("Clear Form", on_click=clear_checkout_form, use_container_width=True)
+
+                    if confirm_btn:
                        if not (canvas_result.json_data and any(obj.get("path") for obj in canvas_result.json_data.get("objects", []))):
                            stl.error("Signature is required. Please sign in the box above.")
                            stl.stop()
@@ -659,7 +709,7 @@ def system():
                        details = get_transaction_details(int(tx_id))
 
                        if details:
-                            email_receipt(details, "Check-Out")
+                           email_receipt(details, "Check-Out")
 
                        stl.success(f"Transaction {tx_id} checked out successfully.")
                        stl.balloons()
@@ -668,12 +718,12 @@ def system():
                        stl.subheader("Check-Out Confirmation Receipt")
                        
                        if details:
-                            stl.markdown(f"**Confirmation #:** `{confirmation_code(details[0])}`")
-                            stl.markdown(f"**Transaction ID:** `{details[0]}`")
-                            stl.markdown(f"**Employee ID:** `{details[1]}`")
-                            stl.markdown(f"**Asset Tag:** `{details[2]}`")
-                            stl.markdown(f"**Check-In Time:** {details[4]}")
-                            stl.markdown(f"**Check-Out Time:** {details[5]}")
+                           stl.markdown(f"**Confirmation #:** `{confirmation_code(details[0])}`")
+                           stl.markdown(f"**Transaction ID:** `{details[0]}`")
+                           stl.markdown(f"**Employee ID:** `{details[1]}`")
+                           stl.markdown(f"**Asset Tag:** `{details[2]}`")
+                           stl.markdown(f"**Check-In Time:** {details[4]}")
+                           stl.markdown(f"**Check-Out Time:** {details[5]}")
 
     elif choice == "Dashboard":
         active_df = view_active_transactions()
@@ -754,4 +804,3 @@ def system():
 
 if __name__ == '__main__':
     system()
-
