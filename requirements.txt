@@ -5,7 +5,7 @@ opencv-python-headless
 pyzbar
 streamlit-drawable-canvas
 Pillow
+altair
 fpdf2
 certifi
 matplotlib
-altair
