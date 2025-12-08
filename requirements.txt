@@ -7,3 +7,5 @@ streamlit-drawable-canvas
 Pillow
 fpdf2
 certifi
+matplotlib
+altair
