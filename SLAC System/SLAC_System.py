@@ -36,6 +36,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Construct the full path to the logo file
+logo_path = os.path.join(script_dir, "static", "logo.png")
+
 # ---------------- UI chrome ----------------
 stl.markdown(
     """
@@ -50,7 +54,7 @@ stl.markdown(
 )
 
 with stl.sidebar:
-    stl.image("static/logo.png", width=200)  # adjust width as needed
+    stl.image(logo_path, width=200)  # adjust width as needed
     stl.markdown("---")  # optional separator line.
 
 # ---------------- Safe secrets helpers ----------------
