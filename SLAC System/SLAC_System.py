@@ -37,7 +37,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-# Construct the full path to the logo file
 logo_path = os.path.join(script_dir, "static", "logo.png")
 
 # ---------------- UI chrome ----------------
